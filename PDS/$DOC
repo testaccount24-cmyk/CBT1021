@@ -1,0 +1,30 @@
+This file contains an improved version of EALSD095.
+
+- Improved performance compared to IEFSD095 and EALSD095.
+  - Requirement for work area eliminated, along with the GETMAIN
+    and FREEMAIN to obtain and release the work area
+  - Character lookup faster by eliminating the related loop.
+- More special characters, including the Euro character.
+- Some characters altered to match IEFSD095 or generally improve
+  their appearance.
+- Documentation improved.  It actually describes how it works!
+- The euro character needs to be improved.  I am hopeful someone
+  with better skills than me can do this.
+- It uses the same calling sequence (except for the name of the
+  module) as IEFSD095 and EALSD095).
+- The object is arranged so that a program using IEFSD095 or
+  EALSD095 can just removed the IEFSD095 or EALSD095 module
+  and replace it with FANSD095.
+- Believe it or not, it is actually smaller than EALSD095!
+
+           C O N T E N T S   O F   T H I S   D A T A   S E T
+
+Member
+$DOC     - This member
+FANSD095 - Assembler source for FANSD095
+TESTER   - Assembler source for a FANSD095 test program
+TESTJCL  - JCL to assemble and run TESTER and FANSD095
+
+                              S U P P O R T
+
+Contact the author at mvsprog@yahoo.com
