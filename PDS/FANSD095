@@ -1,0 +1,675 @@
+FANSD095 TITLE '                      F A N D E Z H I   V E R S I O N  >
+                O F   E A L S D 0 9 5'
+*$DOC@*****************************************************************
+*                  I  E  F  S  D  0  9  5                             *
+*                                                                     *
+*   THIS MODULE HAS BEEN MODIFIED BY EASTERN AIR LINES.               *
+*                                                                     *
+*   UPDATES HAVE BEEN APPLIED SO THAT:                                *
+*                                                                     *
+*   1. THE SPECIAL CHARACTERS FOUND ON MOST PRINTER UNITS WILL        *
+*      PRINT IN BLOCK FORMAT.                                         *
+*                                                                     *
+*      THE SPECIAL CHARACTERS ARE:                                    *
+*                                                                     *
+*      . < ( + | & $ * ) ; ¬ - / , % _ > ? : # @ ' = ''               *
+*                                                                     *
+*        MANY THANKS TO EASTERN AIRLINES YEARS AGO WHILE ON           *
+*        OS/MVT FOR MAKING THIS AVAILABLE.     JIM MARSHALL           *
+*                                                                     *
+* October 2016 -                                                      *
+*   * Eliminated work area, and the GETMAIN and FREEMAIN for the      *
+*     work area                                                       *
+*   * Simplified the initial character lookup.  This change also      *
+*     eliminates dependency on the EBCDIC code.                       *
+*   * Will use * as a fill character for any character not            *
+*     processed by IBM's IEFSD095                                     *
+*   * Updated program AMODE and RMODE                                 *
+*   * Use long form SAVE and RETURN macros                            *
+*   * Altered $, # and @ to match current (z/OS 1.6) IBM IEFSD095     *
+*   * Not character (¬) repositioned in its cell box                  *
+*   * Colon character (:) repositioned in its cell box                *
+*   * Added exclamation mark  !                                       *
+*   * Added back slash        \                                       *
+*   * Added tilde             ~                                       *
+*   * Added Euro              Æ    (X'9E')                            *
+*   * Improved documentation so the next person can have an easier    *
+*     time of it.                                                     *
+*   * Return RC = 0                                                   *
+*   * Define program CSECT as read only                               *
+*   * Revised initialization to reduce instruction count              *
+*   * Verify line count is within valid range                         *
+*   * Removed use of R11 and R12.  These registers are not saved and  *
+*     restored, reducing linkage overhead                             *
+*   * Lower case characters are translated to upper case.  It is not  *
+*     practical to prepare bit maps for lower case characters because *
+*     of descenders                                                   *
+*                                                                     *
+* Only System/360 instructions are used in this routine, even at the  *
+* cost of additional complexity or reduced performance.               *
+*                                                                     *
+* Comments about character set dependency implied that the Assenbler  *
+* apply the value of a self defining term as defined by the translate *
+* table.  The present version of the Assembler does not do this.      *
+* In other words, if TRANSLATE(AS) is specified, the self defining    *
+* term C'A' should take on the value X'41'.  It does not.  It         *
+* continues to have the value X'C1'.                                  *
+*                                                                     *
+*$DOC$*****************************************************************
+         EJECT
+         MACRO
+&O       GENEQU &I,&MAX
+         LCLA  &A
+         PUSH  PRINT
+         PRINT NOGEN
+.L       AIF   (&A GE &MAX).X
+&A       SETA  &A+1
+O&A      EQU   &I&A-LINEPATN
+         AGO   .L
+.X       POP   PRINT
+         MEND
+         SPACE 5
+FANSD095 RSECT
+         SPACE 1
+FANSD095 AMODE ANY
+FANSD095 RMODE ANY
+         SPACE 1
+         ENTRY IEFSD095,EALSD095
+IEFSD095 EQU   FANSD095
+EALSD095 EQU   FANSD095
+*INITIALIZE
+         SPACE 1
+         USING *,R9                ESTABLISH ADDRESSABILITY
+         SAVE  (14,10),,'FANSD095 &SYSDATE &SYSTIME'  SAVE REGISTERS
+         LR    R9,R15                  SET BASE REGISTER
+         LM    R2,R5,0(R1)         LOAD PARAMETERS
+         L     R8,0(,R5)           LOAD STRING LENGTH
+         LR    R1,R2               COPY STRING ADDRESS TO REG 1
+         L     R3,0(,R3)           LOAD LINE NUMBER
+         LA    R0,1                SET REG 0 = 1
+         SR    R2,R2               SET REG 2 = 0
+         CH    R3,H12              Compare line number with 12
+         BH    QUIT                Br if invalid line number
+         CR    R3,R0               Compare line number with 1
+         BL    QUIT                Br if invalid line number
+         SPACE 1
+* The code to look up the bitmap is a two step process.  The first
+* step loads the offset in the CHARACTR table.  The offset is
+* divided by 12 since each CHARACTR table entry contains 12 bytes.
+* Each CHARACTR table entry contains 12 bytes, one for each line
+* in the block letter cell.  Each byte, in turn, contains the
+* offset of an entry in the LINEPATN table.  These 16 bit entries
+* contain the bit map in the low order 12 bits of the entry of the
+* characters in the block letter cell that should be filled in.
+*
+* As an example, consider what happens for the letters A and S.
+*
+* GETPTR   DC    0XLl256'0',256AL1((BLANK-CHARACTR)/12)
+*          ORG   GETPTR+C'A'
+*          DC    AL1((A-CHARACTR)/12)
+*          ORG   GETPTR+C'S'
+*          DC    AL1((S-CHARACTR)/12)
+*
+* CHARACTR DC    0F'0'
+*          ....
+* A        DC    X'020008080800000808080808'
+* S        DC    X'02000826585A5C5E64080002'
+*          ....
+* LINEPATN DC    0F'0'
+* L1       DC    BL2'111111111111'  Offset 00
+* L2       DC    BL2'011111111110'  Offset 02
+*          ....
+* L5       DC    BL2'110000000011'  Offset 08
+*          ....
+* L20      DC    BL2'110000000000'  Offset 26
+*          ....
+* L45      DC    BL2'111000000000'  Offset 58
+* L46      DC    BL2'011111111100'  Offset 5A
+* L47      DC    BL2'001111111110'  Offset 5C
+* L48      DC    BL2'000000000111'  Offset 5E
+*          ....
+* L51      DC    BL2'000000000011'  Offset 64
+*
+* The character is used as an offset to load the value at GETPTR+C'A'.
+* This value is the offset of the entry for the letter A in the
+* CHARACTR table divided by 12.
+*
+* Each entry in the CHARACTR table contains 12 bytes.  Each byte
+* defines the offset of an entry in the LINEPATN table.  The
+* LINEPATN table defines a bit mask for one line of the 12x12
+* output cell.
+*
+*          ----+----1--
+* Line  1   AAAAAAAAAA     LINEPATN+02
+* Line  2  AAAAAAAAAAAA    LINEPATN+00
+* Line  3  AA        AA    LINEPATN+08
+* Line  4  AA        AA    LINEPATN+08
+* Line  5  AA        AA    LINEPATN+08
+* Line  6  AA        AA    LINEPATN+08
+* Line  7  AAAAAAAAAAAA    LINEPATN+00
+* Line  8  AAAAAAAAAAAA    LINEPATN+00
+* Line  9  AA        AA    LINEPATN+08
+* Line 10  AA        AA    LINEPATN+08
+* Line 11  AA        AA    LINEPATN+08
+* Line 12  AA        AA    LINEPATN+08
+*
+*          ----+----1--
+* Line  1   SSSSSSSSSS     LINEPATN+02
+* Line  2  SSSSSSSSSSSS    LINEPATN+00
+* Line  3  SS        SS    LINEPATN+08
+* Line  4  SS              LINEPATN+26
+* Line  5  SSS             LINEPATN+58
+* Line  6   SSSSSSSSS      LINEPATN+5A
+* Line  7    SSSSSSSSS     LINEPATN+5C
+* Line  8           SSS    LINEPATN+5E
+* Line  9            SS    LINEPATN+64
+* Line 10  SS        SS    LINEPATN+08
+* Line 11  SSSSSSSSSSSS    LINEPATN+00
+* Line 12   SSSSSSSSSS     LINEPATN+02
+         SPACE 1
+         SR    R7,R7               SET REG 7 = 0
+LOOP     IC    R2,0(,R1)           GET CHARACTER
+         SR    R6,R6               SET REG 6 = 0
+         LR    R10,R2              COPY CHARACTER TO REG 10
+         IC    R6,GETPTR(R2)       LOAD OFFSET/12 IN CHARACTER TABLE
+         CH    R6,MAXREG           COMPARE CHARACTER TABLE OFFSET     ->
+                                    WITH MAX OFFSET FOR AN ALPHABETIC ->
+                                     OR NUMERIC CHARACTER
+         BNH   *+8                 BR IF CHARACTER IS NOT A SPECIAL   ->
+                                    CHARACTER
+         LA    R10,C'*'            SPECIAL CHARACTER - REPLACE IT     ->
+                                    WITH AN ASTERISK
+         MH    R6,H12              CALCULATE POSITION IN CHARACTR
+*   GET POINTER TO LINE PATTERN
+         AR    R6,R3               ADD LINE NUMBER TO REG 6           ->
+                                     Reg 6 has value 1 to 12,         ->
+                                      not 0 to 11.  This is why       ->
+                                       we use CHARACTR-1 in the       ->
+                                        line of code
+         IC    R7,CHARACTR-1(R6)   LOAD OFFSET OF LINEPATN ENTRY
+         LH    R5,LINEPATN(R7)     LOAD LINEPATN BIT MASK
+         SPACE 1
+* The SLL converts register 5 from
+*
+* 0----+----1----+----2----+----3-
+* 00000000000000000000bbbbbbbbbbbb    to
+*
+* 0bbbbbbbbbbbb0000000000000000000
+         SPACE 1
+         SLL   R5,19               19 = 32 - 12 - 1
+         OR    R5,R0               ADD 1 TO THE REGISTER
+         SPACE 1
+* Fill in the cell elements for the current block letter line
+         SPACE 1
+         LA    R15,12              LOAD NUMBER OF BITS INTO REG 15
+* The original value of register 5 before the addition is the
+* compare value.  See Principles of Operation.
+SETCELL  BXH   R5,R5,LP1           R5 = R5 + R5, BR IF HIGH ORDER     ->
+                                    BIT IS 0
+         STC   R10,0(,R4)          HIGH ORDER BIT 1, STORE CHARACTER
+LP1      AR    R4,R0               BUMP POINTER
+         BCT   R15,SETCELL         CONTINUE TO NEXT BIT
+         LA    R4,2(,R4)           COMPUTE ADDR OF NEXT OUTPUT POSITION
+         AR    R1,R0               UPDATE INPUT POINTER
+         BCT   R8,LOOP             GO PROCESS THE NEXT CHARACTER
+QUIT     RETURN (14,10),T,RC=0     RESTORE REGS & RETURN TO CALLER
+         EJECT
+*   CONSTANTS
+         SPACE 1
+* This table is character set independent.  By updating the character
+* set definition for the Assembler, and reassembling FANSD095, the
+* block letter routine will produce the correct characters.
+*
+* There is the assumption that the letters of the Roman alphabet and
+* the numbers will occupy consecutive and advancing positions in
+* their character set definition.
+         SPACE 1
+         DC    0D'0'
+GETPTR   DC    0XL256'0',256AL1((BLANK-CHARACTR)/12)
+         ORG   GETPTR+C'.'
+         DC    AL1((PERIOD-CHARACTR)/12)
+         ORG   GETPTR+C'<'
+         DC    AL1((LESSTHAN-CHARACTR)/12)
+         ORG   GETPTR+C'('
+         DC    AL1((LPAREN-CHARACTR)/12)
+         ORG   GETPTR+C'+'
+         DC    AL1((PLUS-CHARACTR)/12)
+         ORG   GETPTR+C'|'
+         DC    AL1((BAR-CHARACTR)/12)
+         ORG   GETPTR+C'&&'
+         DC    AL1((AMPRSAND-CHARACTR)/12)
+         ORG   GETPTR+C'!'
+         DC    AL1((EXCLAM-CHARACTR)/12)
+         ORG   GETPTR+C'$'
+         DC    AL1((DOLLARS-CHARACTR)/12)
+         ORG   GETPTR+C'*'
+         DC    AL1((ASTERISK-CHARACTR)/12)
+         ORG   GETPTR+C')'
+         DC    AL1((RPAREN-CHARACTR)/12)
+         ORG   GETPTR+C';'
+         DC    AL1((SEMICOLN-CHARACTR)/12)
+         ORG   GETPTR+C'¬'         THE "NOT" CHARACTER
+         DC    AL1((NOT-CHARACTR)/12)
+         ORG   GETPTR+C'-'
+         DC    AL1((DASH-CHARACTR)/12)
+         ORG   GETPTR+C'/'
+         DC    AL1((SLASH-CHARACTR)/12)
+         ORG   GETPTR+C','
+         DC    AL1((COMMA-CHARACTR)/12)
+         ORG   GETPTR+C'%'
+         DC    AL1((PERCENT-CHARACTR)/12)
+         ORG   GETPTR+C'_'
+         DC    AL1((UNDSCORE-CHARACTR)/12)
+         ORG   GETPTR+C'>'
+         DC    AL1((GRTHAN-CHARACTR)/12)
+         ORG   GETPTR+C'?'
+         DC    AL1((QUESTION-CHARACTR)/12)
+         ORG   GETPTR+C':'
+         DC    AL1((COLON-CHARACTR)/12)
+         ORG   GETPTR+C'#'
+         DC    AL1((POUND-CHARACTR)/12)
+         ORG   GETPTR+C'@'
+         DC    AL1((AT-CHARACTR)/12)
+         ORG   GETPTR+C''''
+         DC    AL1((APOSTRFY-CHARACTR)/12)
+         ORG   GETPTR+C'='
+         DC    AL1((EQUAL-CHARACTR)/12)
+         ORG   GETPTR+C'"'
+         DC    AL1((QUOTES-CHARACTR)/12)
+         ORG   GETPTR+C'Æ'  X'9E'  EURO CHARACTER
+         DC    AL1((EURO-CHARACTR)/12)
+         ORG   GETPTR+C'~'
+         DC    AL1((TILDE-CHARACTR)/12)
+         ORG   GETPTR+C'A'-X'40'   TRANSLATE LOWER CASE TO UPPER CASE
+         DC    AL1((A-CHARACTR)/12)
+         DC    AL1((B-CHARACTR)/12)
+         DC    AL1((C-CHARACTR)/12)
+         DC    AL1((D-CHARACTR)/12)
+         DC    AL1((E-CHARACTR)/12)
+         DC    AL1((F-CHARACTR)/12)
+         DC    AL1((G-CHARACTR)/12)
+         DC    AL1((H-CHARACTR)/12)
+         DC    AL1((I-CHARACTR)/12)
+         ORG   GETPTR+C'J'-X'40'   TRANSLATE LOWER CASE TO UPPER CASE
+         DC    AL1((J-CHARACTR)/12)
+         DC    AL1((K-CHARACTR)/12)
+         DC    AL1((L-CHARACTR)/12)
+         DC    AL1((M-CHARACTR)/12)
+         DC    AL1((N-CHARACTR)/12)
+         DC    AL1((O-CHARACTR)/12)
+         DC    AL1((P-CHARACTR)/12)
+         DC    AL1((Q-CHARACTR)/12)
+         DC    AL1((R-CHARACTR)/12)
+         ORG   GETPTR+C'S'-X'40'   TRANSLATE LOWER CASE TO UPPER CASE
+         DC    AL1((S-CHARACTR)/12)
+         DC    AL1((T-CHARACTR)/12)
+         DC    AL1((U-CHARACTR)/12)
+         DC    AL1((V-CHARACTR)/12)
+         DC    AL1((W-CHARACTR)/12)
+         DC    AL1((X-CHARACTR)/12)
+         DC    AL1((Y-CHARACTR)/12)
+         DC    AL1((Z-CHARACTR)/12)
+         ORG   GETPTR+C'A'
+         DC    AL1((A-CHARACTR)/12)
+         DC    AL1((B-CHARACTR)/12)
+         DC    AL1((C-CHARACTR)/12)
+         DC    AL1((D-CHARACTR)/12)
+         DC    AL1((E-CHARACTR)/12)
+         DC    AL1((F-CHARACTR)/12)
+         DC    AL1((G-CHARACTR)/12)
+         DC    AL1((H-CHARACTR)/12)
+         DC    AL1((I-CHARACTR)/12)
+         ORG   GETPTR+C'J'
+         DC    AL1((J-CHARACTR)/12)
+         DC    AL1((K-CHARACTR)/12)
+         DC    AL1((L-CHARACTR)/12)
+         DC    AL1((M-CHARACTR)/12)
+         DC    AL1((N-CHARACTR)/12)
+         DC    AL1((O-CHARACTR)/12)
+         DC    AL1((P-CHARACTR)/12)
+         DC    AL1((Q-CHARACTR)/12)
+         DC    AL1((R-CHARACTR)/12)
+         ORG   GETPTR+C'\'         STRANGE PLACE
+         DC    AL1((BSLASH-CHARACTR)/12)
+         ORG   GETPTR+C'S'
+         DC    AL1((S-CHARACTR)/12)
+         DC    AL1((T-CHARACTR)/12)
+         DC    AL1((U-CHARACTR)/12)
+         DC    AL1((V-CHARACTR)/12)
+         DC    AL1((W-CHARACTR)/12)
+         DC    AL1((X-CHARACTR)/12)
+         DC    AL1((Y-CHARACTR)/12)
+         DC    AL1((Z-CHARACTR)/12)
+         ORG   GETPTR+C'0'
+         DC    AL1((ZERO-CHARACTR)/12)
+         DC    AL1((ONE-CHARACTR)/12)
+         DC    AL1((TWO-CHARACTR)/12)
+         DC    AL1((THREE-CHARACTR)/12)
+         DC    AL1((FOUR-CHARACTR)/12)
+         DC    AL1((FIVE-CHARACTR)/12)
+         DC    AL1((SIX-CHARACTR)/12)
+         DC    AL1((SEVEN-CHARACTR)/12)
+         DC    AL1((EIGHT-CHARACTR)/12)
+         DC    AL1((NINE-CHARACTR)/12)
+         ORG   ,
+         SPACE 1
+CHARACTR DC    0F'0'
+BLANK    DC    12X'4C'
+A        DC    X'020008080800000808080808'
+B        DC    X'2C000808322A2A320808002C'
+C        DC    X'020008262626262626080002'
+D        DC    X'282A32080808080808322A28'
+E        DC    X'000026262668682626260000'
+F        DC    X'000026262668682626262626'
+G        DC    X'020008262626343408080002'
+H        DC    X'080808080800000808080808'
+I        DC    X'020214141414141414140202'
+J        DC    X'66660A0A0A0A0A0A3A3A686A'
+K        DC    X'08322E3C3A36363A3C2E3208'
+L        DC    X'262626262626262626260000'
+M        DC    X'083E40424446080808080808'
+N        DC    X'086C6E484A464E5052540876'
+O        DC    X'000008080808080808080000'
+P        DC    X'2C00080808002C2626262626'
+Q        DC    X'020008080808084E50522C56'
+R        DC    X'2C00080808002C3A3C2E3208'
+S        DC    X'02000826585A5C5E64080002'
+T        DC    X'000014141414141414141414'
+U        DC    X'080808080808080808080002'
+V        DC    X'080808080808083062206014'
+W        DC    X'080808080808464442403E08'
+X        DC    X'080830622060602062300808'
+Y        DC    X'080830622060141414141414'
+Z        DC    X'00001070120A147216742400'
+ZERO     DC    X'040208080808080808080204'
+ONE      DC    X'140C0E141414141414140202'
+TWO      DC    X'020008646410121416180000'
+THREE    DC    X'02000864641A1A6464080002'
+FOUR     DC    X'061C1E202224001212121212'
+FIVE     DC    X'0000262626282A106464002C'
+SIX      DC    X'02000826262C000808080002'
+SEVEN    DC    X'002C2E120A14141414141414'
+EIGHT    DC    X'020008083004043008080002'
+NINE     DC    X'020008080800006464080002'
+* Dollar sign ($) Revised to match IBM IEFSD095
+*   1 .....**.....  L11 14
+*   2 .**********.  L2  02
+*   3 ************  L1  00
+*   4 **...**...**  L36 46
+*   5 ***..**.....  L98 C2  NEW
+*   6 .*********..  L46 5A
+*   7 ..*********.  L47 5C
+*   8 .....**..***  L99 C4  NEW
+*   9 **...**...**  L36 46
+*  10 ************  L1  00
+*  11 .**********.  L2  02
+*  12 .....**.....  L11 14
+* DOLLARS DC   X'14020046C25A5CC446000214'                       *FAN
+DOLLARS  DC    AL1(O11,O2,O1,O36,O98,O46,O47,O99,O36,O1,O2,O11)  *FAN
+*DOLLARS  DC    X'14040246785A5C7A46020414'                      *EAL*1
+* Pound sign (#) Revised to match IBM IEFSD095
+*   1 ..**....**..  L50 62
+*   2 ..**....**..  L50 62
+*   3 ************  L1  00
+*   4 ************  L1  00
+*   5 ..**....**..  L50 62
+*   6 ..**....**..  L50 62
+*   7 ..**....**..  L50 62
+*   8 ..**....**..  L50 62
+*   9 ************  L1  00
+*  10 ************  L1  00
+*  11 ..**....**..  L50 62
+*  12 ..**....**..  L50 62
+* POUND  DC    X'626200006262626200006262'                       *FAN
+POUND    DC    AL1(O50,O50,O1,O1,O50,O50,O50,O50,O1,O1,O50,O50)  *FAN
+*POUND   DC    X'4C202000002020000020204C'                       *FAN*1
+* AT sign (@) Revised to match IBM IEFSD095
+*   1 ..********..  L3  04
+*   2 .**********.  L2  02
+*   3 **........**  L5  08
+*   4 ..........**  L51 64
+*   5 ..........**  L51 64
+*   6 ...****...**  L97 C0   New
+*   7 ..******..**  L84 A6   FAN
+*   8 .**...**..**  L85 A8   FAN
+*   9 **....**..**  L40 4E
+*  10 **....**..**  L40 4E
+*  11 .**********.  L2  02
+*  12 ..********..  L3  04
+* AT     DC    X'0402086464C0A6A84E4E0204'                       *FAN
+AT       DC    AL1(O3,O2,O5,O51,O51,O97,O84,O85,O40,O40,O2,O3)   *FAN
+*AT      DC    X'88043008A4A6A84E4EAA0488'                       *EAL*1
+IBMCHAR  EQU   (AT-CHARACTR)/12  LAST IBM CHARACTER              *FAN
+PERIOD   DC    X'4C4C4C4C4C4C4C4C4C146014'                       *EAL*1
+LESSTHAN DC    X'64700A7274262674720A7064'                       *EAL*1
+LPAREN   DC    X'120A14147272727214140A12'                       *EAL*1
+PLUS     DC    X'4C4C14141400001414144C4C'                       *EAL*1
+BAR      DC    X'141414141414141414141414'                       *EAL*1
+AMPRSAND DC    X'0CAC2222AC0CAEB0B2B4B6B8'                       *EAL*1
+ASTERISK DC    X'4C4C14860288880286144C4C'                       *EAL*1
+RPAREN   DC    X'167214140A0A0A0A14147216'                       *EAL*1
+SEMICOLN DC    X'4C4C4C1460144C1460820A80'                       *EAL*1
+* "Not" sign (¬)  (Moved down within the character cell)
+*   1 ............  L39 4C
+*   2 ............  L39 4C
+*   3 ............  L39 4C
+*   4 ............  L39 4C
+*   5 ************  L1  00
+*   6 ************  L1  00
+*   7 ..........**  L51 64
+*   8 ..........**  L51 64
+*   9 ............  L39 4C
+*  10 ............  L39 4C
+*  11 ............  L39 4C
+*  12 ............  L39 4C
+NOT      DC    X'4C4C4C4C000064644C4C4C4C'                       *FAN
+DASH     DC    X'4C4C4C4C4C00004C4C4C4C4C'                       *EAL*1
+SLASH    DC    X'7C641070120A14721674187E'                       *EAL*1
+COMMA    DC    X'4C4C4C4C4C4C4C1460820A80'                       *EAL*1
+PERCENT  DC    X'66929496980A149A9C9EA0A2'                       *EAL*1
+UNDSCORE DC    X'4C4C4C4C4C4C4C4C4C4C0000'                       *EAL*1
+GRTHAN   DC    X'2674720A706464700A727426'                       *EAL*1
+QUESTION DC    X'60886262120A14144C146014'                       *EAL*1
+* Colon (:)    (Repositioned in the character cell)
+*   1 ............  L39 4C
+*   2 ............  L39 4C
+*   3 ............  L39 4C
+*   4 .....**.....  L11 14
+*   5 ....****....  L49 60
+*   6 .....**.....  L11 14
+*   7 ............  L39 4C
+*   8 .....**.....  L11 14
+*   9 ....****....  L49 60
+*  10 .....**.....  L11 14
+*  11 ............  L39 4C
+*  12 ............  L39 4C
+COLON    DC    X'4C4C4C1460144C1460144C4C'                       *FAN
+APOSTRFY DC    X'1460820A804C4C4C4C4C4C4C'                       *EAL*1
+EQUAL    DC    X'4C4C4C00004C4C00004C4C4C'                       *EAL*1
+QUOTES   DC    X'228A8C8E904C4C4C4C4C4C4C'                       *EAL*1
+* Exclamation mark (!)  (New)
+*   1 .....**.....  L11 14
+*   2 ....****....  L49 60
+*   3 ....****....  L49 60
+*   4 ....****....  L49 60
+*   5 ....****....  L49 60
+*   6 ....****....  L49 60
+*   7 .....**.....  L11 14
+*   8 .....**.....  L11 14
+*   9 ............  L39 4C
+*  10 ............  L39 4C
+*  11 .....**.....  L11 14
+*  12 .....**.....  L11 14
+* EXCLAM DC    X'14606060606014144C4C1414'                       *FAN
+EXCLAM   DC    AL1(O11,O49,O49,O49,O49,O49,O11,O11,O39,O39,O11,O11) FAN
+* Backslash mark (\)  (New)
+*   1 .*..........  L64 7E
+*   2 .**.........  L13 18
+*   3 ..**........  L59 74
+*   4 ...**.......  L12 16
+*   5 ....**......  L58 72
+*   6 .....**.....  L11 14
+*   7 ......**....  L6  0A
+*   8 .......**...  L10 12
+*   9 ........**..  L57 70
+*  10 .........**.  L9  10
+*  11 ..........**  L51 64
+*  12 ...........*  L63 7C
+* BSLASH DC    X'7E18741672140A127010647C'                       *FAN
+BSLASH   DC    AL1(O64,O13,O59,O12,O58,O11,O6,O10,O57,O9,O51,O63) *FAN
+* Tilde mark (~)  (New)
+*   1 ............  L39 4C
+*   2 ............  L39 4C
+*   3 ............  L39 4C
+*   4 ............  L39 4C
+*   5 ...**.......  L12 16
+*   6 ..**.**....*  L94 BA
+*   7 .**...**.**.  L86 AA
+*   8 *......**...  L95 BC
+*   9 ............  L39 4C
+*  10 ............  L39 4C
+*  11 ............  L39 4C
+*  12 ............  L39 4C
+* TILDE  DC    X'4C4C4C4C16BAAABC4C4C4C4C'                       *FAN
+TILDE    DC    AL1(O39,O39,O39,O12,O94,O86,O95,O39,O39,O39,O39,O39) FAN
+* Euro (€)   (New)
+*   1 ....********  L96 BE
+*   2 ..*********.  L47 5C
+*   3 .**.........  L13 18
+*   4 ************  L1  00
+*   5 ************  L1  00
+*   6 .**.........  L13 18
+*   7 ************  L1  00
+*   8 ************  L1  00
+*   9 .**.........  L13 18
+*  10 .**.........  L13 18
+*  11 ..*********.  L47 5C
+*  12 ....********  L96 BE
+* EURO   DC    X'BE5C18000018000018185CBE'                       *FAN
+EURO     DC    AL1(O96,O47,O13,O1,O1,O13,O1,O1,O13,O13,O47,O96)  *FAN
+*                                                         LINEPATN
+*                                                          OFFSET
+LINEPATN DC    0F'0'
+L1       DC    BL2'111111111111'                             000
+L2       DC    BL2'011111111110'                             002
+L3       DC    BL2'001111111100'                             004
+L4       DC    BL2'000000111000'                             006
+L5       DC    BL2'110000000011'                             008
+L6       DC    BL2'000000110000'                             00A
+L7       DC    BL2'000011100000'                             00C
+L8       DC    BL2'000111100000'                             00E
+L9       DC    BL2'000000000110'                             010
+L10      DC    BL2'000000011000'                             012
+L11      DC    BL2'000001100000'                             014
+L12      DC    BL2'000110000000'                             016
+L13      DC    BL2'011000000000'                             018
+L14      DC    BL2'000000011110'                             01A
+L15      DC    BL2'000001111000'                             01C
+L16      DC    BL2'000011011000'                             01E
+L17      DC    BL2'000110011000'                             020
+L18      DC    BL2'001100011000'                             022
+L19      DC    BL2'011111111111'                             024
+L20      DC    BL2'110000000000'                             026
+L21      DC    BL2'111111111000'                             028
+L22      DC    BL2'111111111100'                             02A
+L23      DC    BL2'111111111110'                             02C
+L24      DC    BL2'110000001100'                             02E
+L25      DC    BL2'011000000110'                             030
+L26      DC    BL2'110000000110'                             032
+L27      DC    BL2'110000011111'                             034
+L28      DC    BL2'111111100000'                             036
+L29      DC    BL2'110001100000'             ??? No refs ??? 038
+L30      DC    BL2'110000110000'                             03A
+L31      DC    BL2'110000011000'                             03C
+L32      DC    BL2'111000000111'                             03E
+L33      DC    BL2'111100001111'                             040
+L34      DC    BL2'110110011011'                             042
+L35      DC    BL2'110011110011'                             044
+L36      DC    BL2'110001100011'                             046
+L37      DC    BL2'110110000011'                             048
+L38      DC    BL2'110011000011'                             04A
+L39      DC    BL2'000000000000'                             04C
+L40      DC    BL2'110000110011'                             04E
+L41      DC    BL2'110000011011'                             050
+L42      DC    BL2'110000001111'                             052
+L43      DC    BL2'110000000111'                             054
+L44      DC    BL2'011111111011'                             056
+L45      DC    BL2'111000000000'                             058
+L46      DC    BL2'011111111100'                             05A
+L47      DC    BL2'001111111110'                             05C
+L48      DC    BL2'000000000111'                             05E
+L49      DC    BL2'000011110000'                             060
+L50      DC    BL2'001100001100'                             062
+L51      DC    BL2'000000000011'                             064
+L52      DC    BL2'001111111111'                             066
+L53      DC    BL2'111111110000'                             068
+L54      DC    BL2'011111100000'                             06A
+L55      DC    BL2'111000000011'                             06C
+L56      DC    BL2'111100000011'                             06E
+L57      DC    BL2'000000001100'                             070
+L58      DC    BL2'000011000000'                             072
+L59      DC    BL2'001100000000'                             074
+L60      DC    BL2'110000000001'                             076
+L61      DC    BL2'110001100001'                             078 *EAL*1
+L62      DC    BL2'100001100011'                             07A *EAL*1
+L63      DC    BL2'000000000001'                             07C *EAL*1
+L64      DC    BL2'010000000000'                             07E *EAL*1
+L65      DC    BL2'000000100000'                             080 *EAL*1
+L66      DC    BL2'000001110000'                             082 *EAL*1
+L67      DC    BL2'010001100010'             ??? No refs ??? 084 *EAL*1
+L68      DC    BL2'011001100110'                             086 *EAL*1
+L69      DC    BL2'000111111000'                             088 *EAL*1
+L70      DC    BL2'011110111100'                             08A *EAL*1
+L71      DC    BL2'001110011100'                             08C *EAL*1
+L72      DC    BL2'000110001100'                             08E *EAL*1
+L73      DC    BL2'000100001000'                             090 *EAL*1
+L74      DC    BL2'011100000011'                             092 *EAL*1
+L75      DC    BL2'110110000110'                             094 *EAL*1
+L76      DC    BL2'011100001100'                             096 *EAL*1
+L77      DC    BL2'001000011000'                             098 *EAL*1
+L78      DC    BL2'000011000100'                             09A *EAL*1
+L79      DC    BL2'000110001110'                             09C *EAL*1
+L80      DC    BL2'001100011011'                             09E *EAL*1
+L81      DC    BL2'011000001110'                             0A0 *EAL*1
+L82      DC    BL2'110000000100'                             0A2 *EAL*1
+L83      DC    BL2'100111000011'                             0A4 *EAL*1
+L84      DC    BL2'001111110011'                             0A6 *EAL*1
+L85      DC    BL2'011000110011'                             0A8 *EAL*1
+L86      DC    BL2'011000110110'                             0AA *EAL*1
+L87      DC    BL2'000110110000'                             0AC *EAL*1
+L88      DC    BL2'000111100110'                             0AE *EAL*1
+L89      DC    BL2'001100111100'                             0B0 *EAL*1
+L90      DC    BL2'011000011000'                             0B2 *EAL*1
+L91      DC    BL2'011000111100'                             0B4 *EAL*1
+L92      DC    BL2'001111100110'                             0B6 *EAL*1
+L93      DC    BL2'000111000010'                             0B8 *EAL*1
+L94      DC    BL2'001101100001'                             0BA *FAN
+L95      DC    BL2'100000011000'                             0BC *FAN
+L96      DC    BL2'000011111111'                             0BE *FAN
+L97      DC    BL2'000111100011'                             0C0 *FAN
+L98      DC    BL2'111001100000'                             0C2 *FAN
+L99      DC    BL2'000001100111'                             0C4 *FAN
+O        GENEQU L,99               Generate Ox EQU Lx-LOADPATN
+H12      DC    H'12'
+*MAXREG  DC    Y((NINE-CHARACTR)/12)
+MAXREG   DC    Y(IBMCHAR)
+         SPACE 1
+R0       EQU   0
+R1       EQU   1
+R2       EQU   2
+R3       EQU   3
+R4       EQU   4
+R5       EQU   5
+R6       EQU   6
+R7       EQU   7
+R8       EQU   8
+R9       EQU   9
+R10      EQU   10
+R11      EQU   11
+R12      EQU   12
+R13      EQU   13
+R14      EQU   14
+R15      EQU   15
+         SPACE 1
+         DC    0D'0'
+         END

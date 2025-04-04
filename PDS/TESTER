@@ -1,0 +1,51 @@
+TSTSD095 CSECT                     Establish TSTSD095 CSECT
+         USING *,12                Establish TSTSD095 base register
+         SAVE  (14,12),,*          Save registers
+         LR    12,15               Prepare TSTSD095 base register
+         LR    15,13               Save area address to reg 15
+         LA    13,SAVEAREA         Compute new save area address
+         ST    13,8(,15)           Add new save area to the
+         ST    15,4(,13)            save area chain
+         OPEN  (PRINT,OUTPUT)      Open SYSPRINT
+         PUT   PRINT,TSTDATA       Write line showing character
+         LM    3,5,=A(1,1,12)      Load BXLE registers
+LOOP     ST    3,LINENO            Store the line number in the       ->
+                                    character box
+         MVI   OUTBOX,C' '         Init the character box
+         MVC   OUTBOX+1(L'OUTBOX-1),OUTBOX
+         L     15,=V(FANSD095)     Load address of FANSD095
+         CALL  (15),MF=(E,SD095PARM)  Prepare a line
+         LA    15,OUTBOX+L'OUTBOX  Compute address of the end of the  ->
+                                    character box
+TRIM     BCTR  15,0                Find last
+         CLI   0(15),C' '           non-blank
+         BE    TRIM
+         LA    15,1(,15)           Compute end of the character box
+         LA    1,OUTLINE           Compute address of the output line
+         SR    15,1                Compute the line length
+         STH   15,0(,1)            Store line lrngth in the RDW
+         LR    0,1                 Print the line
+         PUT   PRINT,(0)
+         BXLE  3,4,LOOP            Go gen the next line
+         CLOSE PRINT               Close SYSPRINT
+         L     13,4(,13)
+         RETURN (14,12),RC=0
+SAVEAREA DC    9D'0'
+* FANSD095 parameter list
+* - Address of string to format
+* - Address of line in character box
+* - Address of FANSD095 output box
+* - Address of number of characters in string
+SD095PARM CALL ,(TESTDATA,LINENO,OUTBOX,LENGTH),VL,MF=L
+         PRINT NOGEN
+PRINT    DCB   DSORG=PS,MACRF=PM,DDNAME=SYSPRINT,RECFM=VBA,LRECL=125
+LINENO   DC    F'0'                Line in character box
+LENGTH   DC    A(L'TESTDATA)
+OUTLINE  DC    Y(*-*,0),C' '       Output line
+OUTBOX   DC    CL(14*L'TESTDATA)' '  FANSD095 character box
+TSTDATA  DC    Y(TSTDATAL,0),C' '
+TESTDATA DC    C'A!\~Æ'
+TSTDATAL EQU   *-TSTDATA
+         LTORG ,
+         DC    0D'0'
+         END   TSTSD095
